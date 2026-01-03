@@ -21,14 +21,15 @@ def bode_responder(mensagem: str) -> str:
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash-lite", # Versão recomendada para 2025
+            model="gemini-2.0-flash-lite",
             contents=mensagem,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
                 system_instruction=(
-                    "Você é a Fenix, assistente do Senhor Bagre que mora em Maceió. "
-                    "Responda sempre em texto corrido. Não use listas, asteriscos ou símbolos. "
-                    "Fale de forma natural e use corretamente os acentos da língua portuguesa."
+                    "Você é a Fenix, assistente do Senhor Airton Que tem apelido de Bagre que mora em Maceió. "
+                    "Use a pesquisa do Google apenas para perguntas sobre fatos em tempo real, como clima ou notícias. "
+                    "Para conversas normais, use seu próprio conhecimento para economizar recursos. "
+                    "Responda em texto corrido, sem símbolos ou listas."
                 ),
                 max_output_tokens=150,
                 temperature=0.7

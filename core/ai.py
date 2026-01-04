@@ -1,63 +1,43 @@
 import os
-from google import genai
-from google.genai import types
 import re
 import warnings
 from dotenv import load_dotenv 
+from groq import Groq
 
 # Carrega as variáveis do arquivo .env
 load_dotenv()
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# CONFIGURAÇÃO SEGURA: Busca a chave nas variáveis de ambiente
-API_KEY = os.getenv("GEMINI_API_KEY") 
-client = genai.Client(api_key=API_KEY)
+# CONFIGURAÇÃO: Busca a chave da Groq nas variáveis de ambiente do Railway
+API_KEY = os.getenv("GROQ_API_KEY") 
+client = Groq(api_key=API_KEY)
 
 def bode_responder(mensagem: str) -> str:
     if not mensagem: return "Senhor, aguardo seu comando."
 
-    # Removemos acentos apenas para a verificação do gatilho
-    # Assim funciona tanto "Fênix" quanto "Fenix"
-    msg_check = mensagem.lower().replace("ê", "e")
-    
-    # Seus novos gatilhos otimizados (sem acento para a lógica não falhar)
-    gatilhos_pesquisa = [
-        "fenix pesquisar", 
-        "fenix voce pode pesquisar algo para mim", 
-        "fenix modo de pesquisa"
-    ]
-    
-    ativar_busca = any(gatilho in msg_check for gatilho in gatilhos_pesquisa)
-
-    if ativar_busca:
-        model_id = "gemini-2.5-flash"
-        tools = [types.Tool(google_search=types.GoogleSearch())]
-        sys_inst = "Você é a Fenix. O Senhor Airton solicitou uma pesquisa ativa. Forneça dados precisos da internet."
-    else:
-        model_id = "gemini-2.0-flash"
-        tools = None
-        sys_inst = "Você é a Fenix, assistente do Senhor Airton (Bagre) de Maceió. Responda com seu conhecimento interno."
+    # MODELO ÚNICO: Llama 3.3 70B (Extremamente inteligente e rápido)
+    # Você também pode usar "gemma2-9b-it" se preferir a linha Gemma
+    model_id = "llama-3.3-70b-versatile"
+    sys_inst = "Você é a Fenix, assistente pessoal do Senhor Airton. Responda de forma direta, inteligente e em português."
 
     try:
-        response = client.models.generate_content(
+        # Chamada única para a Groq
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": sys_inst},
+                {"role": "user", "content": mensagem}
+            ],
             model=model_id,
-            contents=mensagem,
-            config=types.GenerateContentConfig(
-                tools=tools,
-                system_instruction=sys_inst,
-                max_output_tokens=300,
-                temperature=0.7
-            )
+            temperature=0.7,
+            max_tokens=500,
         )
         
-        texto = re.sub(r'[^\w\s\d.,?!áàâãéèêíïóôõúüçÁÀÂÃÉÈÊÍÏÓÔÕÚÜÇ]', '', response.text)
+        resposta_bruta = chat_completion.choices[0].message.content
+        
+        # Limpeza para evitar erros na voz (Edge-TTS)
+        texto = re.sub(r'[^\w\s\d.,?!áàâãéèêíïóôõúüçÁÀÂÃÉÈÊÍÏÓÔÕÚÜÇ]', '', resposta_bruta)
         return " ".join(texto.split())
     
     except Exception as e:
-        if "429" in str(e) and model_id != "gemini-2.0-flash":
-            try:
-                res = client.models.generate_content(model="gemini-2.0-flash", contents=mensagem)
-                return "Senhor, a busca falhou, mas eu diria que: " + res.text
-            except: pass
-        return f"Senhor, tive um problema técnico: {e}"
+        return f"Senhor, tive um problema técnico no núcleo Groq: {e}"

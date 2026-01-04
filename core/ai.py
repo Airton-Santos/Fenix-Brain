@@ -35,7 +35,7 @@ def bode_responder(mensagem: str) -> str:
         tools = [types.Tool(google_search=types.GoogleSearch())]
         sys_inst = "Você é a Fenix. O Senhor Airton solicitou uma pesquisa ativa. Forneça dados precisos da internet."
     else:
-        model_id = "gemma-3-12b"
+        model_id = "gemini-2.0-flash"
         tools = None
         sys_inst = "Você é a Fenix, assistente do Senhor Airton (Bagre) de Maceió. Responda com seu conhecimento interno."
 

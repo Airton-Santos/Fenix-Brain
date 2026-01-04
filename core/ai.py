@@ -55,9 +55,9 @@ def bode_responder(mensagem: str) -> str:
         return " ".join(texto.split())
     
     except Exception as e:
-        if "429" in str(e) and model_id != "gemma-3-27b":
+        if "429" in str(e) and model_id != "gemini-2.0-flash":
             try:
-                res = client.models.generate_content(model="gemma-3-27b", contents=mensagem)
+                res = client.models.generate_content(model="gemini-2.0-flash", contents=mensagem)
                 return "Senhor, a busca falhou, mas eu diria que: " + res.text
             except: pass
         return f"Senhor, tive um problema técnico: {e}"

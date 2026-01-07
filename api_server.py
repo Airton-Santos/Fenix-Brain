@@ -15,7 +15,7 @@ def comunicar(mensagem: str):
         raise HTTPException(status_code=400, detail="Mensagem vazia")
     try:
         resposta = fenix_responder(mensagem)
-        return {"Feni": resposta}
+        return {"Fenix": resposta}
     except Exception as e:
         return {"erro": str(e)}
 

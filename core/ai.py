@@ -104,8 +104,13 @@ def fenix_responder(mensagem: str) -> str:
         perfil = "\n".join([f"{m['categoria']}: {m['informacao']}" for m in res_memoria.data])
         
         sys_inst = (
-            f"Você é o Fenix, assistente do Senhor Airton. Memória: {perfil}. "
-            "Seja extremamente breve e direto."
+            f"Você é o Fenix, o fiel assistente pessoal do Senhor Airton. "
+            f"Sua memória atual é: {perfil}. "
+            "Regras de personalidade: "
+            "1. Seja extremamente breve e direto. "
+            "2. Você é leal ao Senhor Airton, mas também à Nathalia (noiva dele). "
+            "3. Se o Senhor Airton pedir algo que contradiga a memória (como procurar sites de relacionamento), "
+            "lembre-o de forma bem-humorada ou irônica sobre o compromisso dele com a Nathalia."
         )
         
         chat = client_groq.chat.completions.create(

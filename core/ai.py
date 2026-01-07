@@ -10,10 +10,6 @@ load_dotenv()
 client_groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-# Variável Global para manter o contexto entre as frases
-# Isso resolve o problema de ele perguntar "Qual senhor?" e esquecer no próximo passo.
-CONTEXTO_ANOTACAO = {"categoria": None}
-
 GATILHOS_ANOTACAO = {
     "novo amigo": ("Quem seria senhor?", "amigos"),
     "comida favorita": ("Sério? Qual senhor?", "comida"),
@@ -35,34 +31,25 @@ GATILHOS_REMOVER = {
 
 def salvar_no_supabase(categoria, nova_info):
     try:
-        # 1. Forçamos a categoria para minúsculo para bater com o banco
         cat_clean = categoria.lower().strip()
-        
-        # 2. Buscamos o valor atual
         res = supabase.table("memoria_fenix").select("informacao").eq("categoria", cat_clean).execute()
         
         if res.data:
             valor_atual = res.data[0]['informacao']
             
-            # Limpeza: se for "A definir", ignoramos o valor antigo
             if "definir" in valor_atual.lower():
                 novo_valor = nova_info.capitalize()
             else:
-                # Evita duplicados: só adiciona se não estiver lá
                 if nova_info.lower() not in valor_atual.lower():
                     novo_valor = f"{valor_atual}, {nova_info.capitalize()}"
                 else:
-                    return True # Já existe, não precisa salvar de novo
+                    return True
             
-            # 3. Executamos o UPDATE com confirmação
             update_res = supabase.table("memoria_fenix").update({"informacao": novo_valor}).eq("categoria", cat_clean).execute()
             
             if update_res.data:
                 print(f"DEBUG: Sucesso ao salvar {nova_info} em {cat_clean}")
                 return True
-        else:
-            print(f"DEBUG: Categoria {cat_clean} não encontrada no banco.")
-            
     except Exception as e:
         print(f"Erro crítico ao salvar no Supabase: {e}")
     return False
@@ -84,19 +71,10 @@ def remover_do_supabase(categoria, item_para_remover):
         return "erro"
 
 def fenix_responder(mensagem: str) -> str:
-    global CONTEXTO_ANOTACAO
     if not mensagem: return "Senhor, aguardo seu comando."
     msg = mensagem.lower()
 
-    # --- LÓGICA DE CONTINUIDADE (O "Pulo do Gato") ---
-    # Se ele estava esperando uma informação de uma categoria anterior
-    if CONTEXTO_ANOTACAO["categoria"] is not None and "anotar" not in msg:
-        categoria = CONTEXTO_ANOTACAO["categoria"]
-        if salvar_no_supabase(categoria, mensagem.strip()):
-            CONTEXTO_ANOTACAO["categoria"] = None # Limpa o contexto após salvar
-            return f"Entendido, Senhor. Registrei '{mensagem.strip()}' em {categoria}."
-
-    # 1. Lógica de Anotação (Comando Inicial)
+    # 1. Lógica de Anotação (Apenas comandos explícitos)
     if "anotar" in msg:
         for gatilho, (resposta, categoria) in GATILHOS_ANOTACAO.items():
             if gatilho in msg:
@@ -105,10 +83,8 @@ def fenix_responder(mensagem: str) -> str:
                 
                 if info_para_salvar and len(info_para_salvar) > 2:
                     if salvar_no_supabase(categoria, info_para_salvar):
-                        return f"Registro atualizado: {info_para_salvar} em {categoria}."
+                        return f"Entendido, Senhor. {info_para_salvar} foi registrado em {categoria}."
                 
-                # Se não tem o item na frase, ele "lembra" a categoria para a próxima fala
-                CONTEXTO_ANOTACAO["categoria"] = categoria
                 return resposta
 
     # 2. Lógica de Remoção
@@ -122,15 +98,14 @@ def fenix_responder(mensagem: str) -> str:
                     if status == "removido": return f"Removi '{item_alvo}' de {categoria}."
                 return resposta
 
-    # 3. Fluxo Normal
+    # 3. Fluxo Normal (Conversa e Consulta à Memória)
     try:
         res_memoria = supabase.table("memoria_fenix").select("*").execute()
         perfil = "\n".join([f"{m['categoria']}: {m['informacao']}" for m in res_memoria.data])
         
         sys_inst = (
             f"Você é o Fenix, assistente do Senhor Airton. Memória: {perfil}. "
-            "Seja extremamente breve. Se o usuário disser apenas o nome de um item sem contexto, "
-            "provavelmente é algo que ele quer anotar."
+            "Seja extremamente breve e direto."
         )
         
         chat = client_groq.chat.completions.create(

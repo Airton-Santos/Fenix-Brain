@@ -35,14 +35,36 @@ GATILHOS_REMOVER = {
 
 def salvar_no_supabase(categoria, nova_info):
     try:
-        res = supabase.table("memoria_fenix").select("informacao").eq("categoria", categoria).execute()
+        # 1. Forçamos a categoria para minúsculo para bater com o banco
+        cat_clean = categoria.lower().strip()
+        
+        # 2. Buscamos o valor atual
+        res = supabase.table("memoria_fenix").select("informacao").eq("categoria", cat_clean).execute()
+        
         if res.data:
             valor_atual = res.data[0]['informacao']
-            novo_valor = nova_info if "definir" in valor_atual.lower() else f"{valor_atual}, {nova_info}"
-            supabase.table("memoria_fenix").update({"informacao": novo_valor}).eq("categoria", categoria).execute()
-            return True
+            
+            # Limpeza: se for "A definir", ignoramos o valor antigo
+            if "definir" in valor_atual.lower():
+                novo_valor = nova_info.capitalize()
+            else:
+                # Evita duplicados: só adiciona se não estiver lá
+                if nova_info.lower() not in valor_atual.lower():
+                    novo_valor = f"{valor_atual}, {nova_info.capitalize()}"
+                else:
+                    return True # Já existe, não precisa salvar de novo
+            
+            # 3. Executamos o UPDATE com confirmação
+            update_res = supabase.table("memoria_fenix").update({"informacao": novo_valor}).eq("categoria", cat_clean).execute()
+            
+            if update_res.data:
+                print(f"DEBUG: Sucesso ao salvar {nova_info} em {cat_clean}")
+                return True
+        else:
+            print(f"DEBUG: Categoria {cat_clean} não encontrada no banco.")
+            
     except Exception as e:
-        print(f"Erro ao salvar: {e}")
+        print(f"Erro crítico ao salvar no Supabase: {e}")
     return False
 
 def remover_do_supabase(categoria, item_para_remover):

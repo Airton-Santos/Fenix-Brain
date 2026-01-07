@@ -11,6 +11,7 @@ client_groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 # Dicionário de Gatilhos e Respostas Personalizadas para Anotação
+
 GATILHOS_ANOTACAO = {
     "novo amigo": ("Quem seria senhor?", "amigos"),
     "comida favorita": ("Sério? Qual senhor?", "comida"),
@@ -52,7 +53,6 @@ def remover_do_supabase(categoria, item_para_remover):
             valor_atual = res.data[0]['informacao']
             itens = [i.strip() for i in valor_atual.split(",")]
             
-            # Verifica se o item realmente existe na lista (ignora maiúsculas)
             if item_para_remover.lower() not in [i.lower() for i in itens]:
                 return "nao_encontrado"
             
@@ -69,30 +69,32 @@ def fenix_responder(mensagem: str) -> str:
     if not mensagem: return "Senhor, aguardo seu comando."
     msg = mensagem.lower()
 
-    # 1. Lógica de Anotação
+    # 1. Lógica de Anotação Melhorada
     if "anotar" in msg:
-        encontrou_gatilho = False
         for gatilho, (resposta, categoria) in GATILHOS_ANOTACAO.items():
             if gatilho in msg:
-                encontrou_gatilho = True
-                info_para_salvar = msg.split(gatilho)[-1].replace(":", "").strip()
-                if info_para_salvar:
+                # Extrai tudo o que vem DEPOIS do gatilho ou depois de dois pontos
+                partes = re.split(f"{gatilho}|:", msg)
+                info_para_salvar = partes[-1].strip()
+                
+                # Se o usuário falou o item na mesma frase (ex: "anotar comida favorita pizza")
+                if info_para_salvar and len(info_para_salvar) > 2:
                     if salvar_no_supabase(categoria, info_para_salvar):
-                        return f"{resposta} Registro atualizado com sucesso."
+                        return f"Entendido, Senhor. {info_para_salvar} foi registrado em {categoria}."
+                
+                # Se ele só deu o comando, retorna a pergunta de confirmação
                 return resposta
-        if not encontrou_gatilho:
-            return "Senhor, não entendi o que deseja anotar. Poderia repetir o comando com a categoria correta?"
 
-    # 2. Lógica de Remoção (fora do bloco de anotar)
-    if "remover" in msg or "esquecer" in msg or "tirar" in msg:
+        return "Senhor, não entendi o que deseja anotar. Poderia repetir o comando com a categoria correta?"
+
+    # 2. Lógica de Remoção
+    if any(palavra in msg for palavra in ["remover", "esquecer", "tirar"]):
         for gatilho, (resposta, categoria) in GATILHOS_REMOVER.items():
-            # Verifica se o gatilho está na mensagem ou se a palavra categoria está lá
             palavra_chave_categoria = gatilho.split()[-1] 
             if gatilho in msg or palavra_chave_categoria in msg:
-                # Tenta extrair o item após o comando
                 item_alvo = msg.split(palavra_chave_categoria)[-1].replace(":", "").replace("remover", "").replace("tirar", "").strip()
                 
-                if item_alvo:
+                if item_alvo and len(item_alvo) > 2:
                     status = remover_do_supabase(categoria, item_alvo)
                     if status == "removido":
                         return f"Entendido, Senhor. Removi '{item_alvo}' de sua lista de {categoria}."
@@ -105,15 +107,22 @@ def fenix_responder(mensagem: str) -> str:
         res_memoria = supabase.table("memoria_fenix").select("*").execute()
         perfil = "\n".join([f"{m['categoria']}: {m['informacao']}" for m in res_memoria.data])
         
-        sys_inst = f"Você é o Fenix, assistente do Senhor Airton. Memória: {perfil}. Seja breve e direto."
+        # Instrução de sistema para que a Groq saiba que pode sugerir anotações
+        sys_inst = (
+            f"Você é o Fenix, assistente pessoal do Senhor Airton. "
+            f"Suas memórias atuais são: {perfil}. "
+            "Sempre que o Senhor Airton mencionar algo que pareça uma nova preferência, "
+            "comida, amigo ou conhecimento, confirme e lembre-o de usar o comando 'anotar' para salvar."
+        )
         
         chat = client_groq.chat.completions.create(
             messages=[{"role": "system", "content": sys_inst}, {"role": "user", "content": mensagem}],
             model="llama-3.3-70b-versatile",
-            temperature=0.7
+            temperature=0.6
         )
         
         resposta_final = chat.choices[0].message.content
+        # Limpeza básica mantendo acentuação
         return re.sub(r'[^\w\s\d.,?!áàâãéèêíïóôõúüçÁÀÂÃÉÈÊÍÏÓÔÕÚÜÇ]', '', resposta_final)
     except Exception as e:
         return f"Senhor, erro no processamento do núcleo Fenix: {e}"

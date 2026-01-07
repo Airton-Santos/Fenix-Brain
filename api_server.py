@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from core.ai import bode_responder
+from core.ai import fenix_responder
 import uvicorn
 import os
 
@@ -14,7 +14,7 @@ def comunicar(mensagem: str):
     if not mensagem:
         raise HTTPException(status_code=400, detail="Mensagem vazia")
     try:
-        resposta = bode_responder(mensagem)
+        resposta = fenix_responder(mensagem)
         return {"Feni": resposta}
     except Exception as e:
         return {"erro": str(e)}

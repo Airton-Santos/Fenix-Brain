@@ -1,43 +1,119 @@
 import os
 import re
-import warnings
 from dotenv import load_dotenv 
 from groq import Groq
+from supabase import create_client, Client
 
-# Carrega as variáveis do arquivo .env
 load_dotenv()
 
-warnings.filterwarnings("ignore", category=UserWarning)
+# Configurações
+client_groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
+supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-# CONFIGURAÇÃO: Busca a chave da Groq nas variáveis de ambiente do Railway
-API_KEY = os.getenv("GROQ_API_KEY") 
-client = Groq(api_key=API_KEY)
+# Dicionário de Gatilhos e Respostas Personalizadas para Anotação
+GATILHOS_ANOTACAO = {
+    "novo amigo": ("Quem seria senhor?", "amigos"),
+    "comida favorita": ("Sério? Qual senhor?", "comida"),
+    "adicionar uma informação": ("O quê desejar incrementar?", "pessoal"),
+    "novo conhecimento": ("Que bom, poderia compartilhar esse conhecimento?", "trabalho"),
+    "relacionamento": ("Pode falar senhor", "relacionamento"),
+    "redes sociais": ("Estou ouvindo", "rede_social"),
+    "nova preferencia": ("O que seria senhor?", "hobby")
+}
 
-def bode_responder(mensagem: str) -> str:
-    if not mensagem: return "Senhor, aguardo seu comando."
+# Dicionário de Gatilhos para Remoção
+GATILHOS_REMOVER = {
+    "remover amigo": ("Qual amigo deseja retirar da lista?", "amigos"),
+    "remover comida": ("Qual prato devo esquecer?", "comida"),
+    "remover informação": ("O que deseja que eu esqueça sobre você?", "pessoal"),
+    "remover conhecimento": ("Qual tecnologia não faz mais parte do seu foco?", "trabalho"),
+    "limpar rede social": ("Qual rede social deseja remover?", "rede_social")
+}
 
-    # MODELO ÚNICO: Llama 3.3 70B (Extremamente inteligente e rápido)
-    # Você também pode usar "gemma2-9b-it" se preferir a linha Gemma
-    model_id = "llama-3.3-70b-versatile"
-    sys_inst = "Você é a Fenix, assistente pessoal do Senhor Airton. Responda de forma direta, inteligente e em português."
-
+def salvar_no_supabase(categoria, nova_info):
+    """Atualiza a informação no banco de dados concatenando com o que já existe"""
     try:
-        # Chamada única para a Groq
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": sys_inst},
-                {"role": "user", "content": mensagem}
-            ],
-            model=model_id,
-            temperature=0.7,
-            max_tokens=500,
+        res = supabase.table("memoria_fenix").select("informacao").eq("categoria", categoria).execute()
+        if res.data:
+            valor_atual = res.data[0]['informacao']
+            # Se for 'A definir', substitui. Se não, adiciona com vírgula.
+            novo_valor = nova_info if "definir" in valor_atual.lower() else f"{valor_atual}, {nova_info}"
+            supabase.table("memoria_fenix").update({"informacao": novo_valor}).eq("categoria", categoria).execute()
+            return True
+    except Exception as e:
+        print(f"Erro ao salvar: {e}")
+    return False
+
+def remover_do_supabase(categoria, item_para_remover):
+    """Localiza e remove um item específico da lista na tabela memoria_fenix"""
+    try:
+        res = supabase.table("memoria_fenix").select("informacao").eq("categoria", categoria).execute()
+        if res.data:
+            valor_atual = res.data[0]['informacao']
+            itens = [i.strip() for i in valor_atual.split(",")]
+            
+            # Verifica se o item realmente existe na lista (ignora maiúsculas)
+            if item_para_remover.lower() not in [i.lower() for i in itens]:
+                return "nao_encontrado"
+            
+            novos_itens = [i for i in itens if i.lower() != item_para_remover.lower()]
+            novo_valor = ", ".join(novos_itens) if novos_itens else "A definir"
+            
+            supabase.table("memoria_fenix").update({"informacao": novo_valor}).eq("categoria", categoria).execute()
+            return "removido"
+    except Exception as e:
+        print(f"Erro ao remover: {e}")
+        return "erro"
+
+def fenix_responder(mensagem: str) -> str:
+    if not mensagem: return "Senhor, aguardo seu comando."
+    msg = mensagem.lower()
+
+    # 1. Lógica de Anotação
+    if "anotar" in msg:
+        encontrou_gatilho = False
+        for gatilho, (resposta, categoria) in GATILHOS_ANOTACAO.items():
+            if gatilho in msg:
+                encontrou_gatilho = True
+                info_para_salvar = msg.split(gatilho)[-1].replace(":", "").strip()
+                if info_para_salvar:
+                    if salvar_no_supabase(categoria, info_para_salvar):
+                        return f"{resposta} Registro atualizado com sucesso."
+                return resposta
+        if not encontrou_gatilho:
+            return "Senhor, não entendi o que deseja anotar. Poderia repetir o comando com a categoria correta?"
+
+    # 2. Lógica de Remoção (fora do bloco de anotar)
+    if "remover" in msg or "esquecer" in msg or "tirar" in msg:
+        for gatilho, (resposta, categoria) in GATILHOS_REMOVER.items():
+            # Verifica se o gatilho está na mensagem ou se a palavra categoria está lá
+            palavra_chave_categoria = gatilho.split()[-1] 
+            if gatilho in msg or palavra_chave_categoria in msg:
+                # Tenta extrair o item após o comando
+                item_alvo = msg.split(palavra_chave_categoria)[-1].replace(":", "").replace("remover", "").replace("tirar", "").strip()
+                
+                if item_alvo:
+                    status = remover_do_supabase(categoria, item_alvo)
+                    if status == "removido":
+                        return f"Entendido, Senhor. Removi '{item_alvo}' de sua lista de {categoria}."
+                    elif status == "nao_encontrado":
+                        return f"Senhor, não encontrei '{item_alvo}' na lista de {categoria}."
+                return resposta
+
+    # 3. Fluxo Normal: Groq + Memória do Supabase
+    try:
+        res_memoria = supabase.table("memoria_fenix").select("*").execute()
+        perfil = "\n".join([f"{m['categoria']}: {m['informacao']}" for m in res_memoria.data])
+        
+        sys_inst = f"Você é o Fenix, assistente do Senhor Airton. Memória: {perfil}. Seja breve e direto."
+        
+        chat = client_groq.chat.completions.create(
+            messages=[{"role": "system", "content": sys_inst}, {"role": "user", "content": mensagem}],
+            model="llama-3.3-70b-versatile",
+            temperature=0.7
         )
         
-        resposta_bruta = chat_completion.choices[0].message.content
-        
-        # Limpeza para evitar erros na voz (Edge-TTS)
-        texto = re.sub(r'[^\w\s\d.,?!áàâãéèêíïóôõúüçÁÀÂÃÉÈÊÍÏÓÔÕÚÜÇ]', '', resposta_bruta)
-        return " ".join(texto.split())
-    
+        resposta_final = chat.choices[0].message.content
+        return re.sub(r'[^\w\s\d.,?!áàâãéèêíïóôõúüçÁÀÂÃÉÈÊÍÏÓÔÕÚÜÇ]', '', resposta_final)
     except Exception as e:
-        return f"Senhor, tive um problema técnico no núcleo Groq: {e}"
+        return f"Senhor, erro no processamento do núcleo Fenix: {e}"
